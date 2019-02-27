@@ -2,18 +2,17 @@ require 'net/http'
 require 'json'
 
 # Set the following constants with your data
-PROJECT_ID = 0
-ACCESS_TOKEN = 'your-access-token'
-CLIENT_ID = 'your-client-id'
-UID = 'your-uid'
+PROJECT_ID = 23
+ACCESS_TOKEN = '9aRgRLnbR8JM6r4KDR0pKQ'
+CLIENT_ID = 'IPSoe-Et9NjdllsVW-Vsfg'
+UID = 'celine.bon@hiptest.net'
 
-PROJECT_URL = "https://hiptest.net/api/projects/#{PROJECT_ID}/test_runs"
+PROJECT_URL = "http://localhost:3000/api/projects/#{PROJECT_ID}"
 
-# That method will actually fetch the data from Hiptest
-# and return an array of hashes containing test runs names and statuses
-def request_hiptest_status
 
-  uri = URI(PROJECT_URL)
+def request_test_runs
+
+  uri = URI("#{PROJECT_URL}/test_runs")
   result = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https') do |http|
     request = Net::HTTP::Get.new uri
     request['Accept'] = "application/vnd.api+json; version=1"
@@ -29,18 +28,66 @@ def request_hiptest_status
     # To return an array containing only names and statusese of test runs
     return response['data'].collect do |test_run|
       {
-        'name' => test_run['attributes']['name'], 
-        'statuses' => test_run['attributes']['statuses']
+        'id' => test_run['id'],
+        'name' => test_run['attributes']['name']
       }
     end
   end
+end
 
-  # If something wrong happened then tiles won't be refreshed.
-  puts 'An error occurs.'
-  puts result
+def request_environments(test_run)
+  uri = URI("#{PROJECT_URL}/test_runs/#{test_run['id']}/execution_environments")
+  result = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https') do |http|
+    request = Net::HTTP::Get.new uri
+    request['Accept'] = "application/vnd.api+json; version=1"
+    request['access-token'] = ACCESS_TOKEN
+    request['client'] = CLIENT_ID
+    request['uid'] = UID
+    http.request request
+  end
 
-  return nil
-  
+  if result and result.is_a?(Net::HTTPOK)
+    response = JSON.parse(result.body)
+
+    # To return an array containing only names and statusese of test runs
+    return response['data'].collect do |ee|
+      {
+        'id' => ee['id'],
+        'name' => ee['attributes']['name']
+      }
+    end
+  end
+end
+
+def request_results(test_run, ee)
+  uri = URI("#{PROJECT_URL}/test_runs/#{test_run['id']}/execution_environments/#{ee['id']}/builds/current?include=test-results")
+  result = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https') do |http|
+    request = Net::HTTP::Get.new uri
+    request['Accept'] = "application/vnd.api+json; version=1"
+    request['access-token'] = ACCESS_TOKEN
+    request['client'] = CLIENT_ID
+    request['uid'] = UID
+    http.request request
+  end
+
+  if result and result.is_a?(Net::HTTPOK)
+    response = JSON.parse(result.body)
+
+    # To return an array containing only names and statusese of test runs
+    return response['included'].collect do |result|
+      result['attributes']['status']
+    end
+  end
+end
+
+def summarize_results(results)
+  summarized_results = Hash.new(0)
+
+  results.each do |result|
+    summarized_results[result] += 1
+  end
+
+  summarized_results
 end
 
 # This method is in charge of returning the most
@@ -71,30 +118,44 @@ def get_status_details(statuses)
 
 end
 
+def get_tr_status_text(statuses)
+  get_status_text(summarize_results(statuses.values.flatten))
+end
+
 # Every 30 seconds the dashboard will fetch statuses from Hiptest
 # then refresh the tiles accordingly
-SCHEDULER.every '30s' do
+SCHEDULER.every '2s' do
 
-  test_runs = request_hiptest_status
+  test_runs = request_test_runs
 
   unless test_runs.nil?
 
-    send_event(
-      'tr-1', 
-      { 
-        title: test_runs.first['name'], 
-        text: get_status_text(test_runs.first['statuses']),
-        moreinfo: get_status_details(test_runs.first['statuses'])
-      })
+    test_runs.each_with_index do |test_run, index|
+      environments = request_environments(test_run)
 
-    send_event(
-      'tr-2', 
-      { 
-        title: test_runs.last['name'], 
-        text: get_status_text(test_runs.last['statuses']),
-        moreinfo: get_status_details(test_runs.last['statuses'])
-      })
+      results = Hash.new
 
+      environments.each do |ee|
+        results[ee['name']] = request_results(test_run, ee)
+        summarized = summarize_results(results[ee['name']])
+
+        send_event(
+          "tr-#{test_run['id']}-#{ee['name']}",
+          {
+            title: "#{test_run['name']} on #{ee['name']}",
+            text: get_status_text(summarized),
+            moreinfo: get_status_details(summarized)
+          }
+        )
+      end
+
+      send_event(
+        "tr-#{test_run['id']}",
+        {
+          title: test_run['name'],
+          text: get_tr_status_text(results),
+          moreinfo: ''
+        })
+    end
   end
-
 end
