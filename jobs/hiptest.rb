@@ -9,10 +9,8 @@ UID = 'celine.bon@hiptest.net'
 
 PROJECT_URL = "http://localhost:3000/api/projects/#{PROJECT_ID}"
 
-
-def request_test_runs
-
-  uri = URI("#{PROJECT_URL}/test_runs")
+def get_URL(route)
+  uri = URI("#{PROJECT_URL}/#{route}")
   result = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https') do |http|
     request = Net::HTTP::Get.new uri
     request['Accept'] = "application/vnd.api+json; version=1"
@@ -24,59 +22,44 @@ def request_test_runs
 
   if result and result.is_a?(Net::HTTPOK)
     response = JSON.parse(result.body)
+    return response
+  end
+  nil
+end
 
-    # To return an array containing only names and statusese of test runs
-    return response['data'].collect do |test_run|
-      {
-        'id' => test_run['id'],
-        'name' => test_run['attributes']['name']
-      }
-    end
+def request_test_runs
+  response = get_URL("test_runs")
+
+  return nil if response.nil?
+  # To return an array containing only names and statusese of test runs
+  return response['data'].collect do |test_run|
+    {
+      'id' => test_run['id'],
+      'name' => test_run['attributes']['name']
+    }
   end
 end
 
 def request_environments(test_run)
-  uri = URI("#{PROJECT_URL}/test_runs/#{test_run['id']}/execution_environments")
-  result = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https') do |http|
-    request = Net::HTTP::Get.new uri
-    request['Accept'] = "application/vnd.api+json; version=1"
-    request['access-token'] = ACCESS_TOKEN
-    request['client'] = CLIENT_ID
-    request['uid'] = UID
-    http.request request
-  end
+  response = get_URL("test_runs/#{test_run['id']}/execution_environments")
 
-  if result and result.is_a?(Net::HTTPOK)
-    response = JSON.parse(result.body)
-
-    # To return an array containing only names and statusese of test runs
-    return response['data'].collect do |ee|
-      {
-        'id' => ee['id'],
-        'name' => ee['attributes']['name']
-      }
-    end
+  return nil if response.nil?
+  # To return an array containing only names and statusese of test runs
+  return response['data'].collect do |ee|
+    {
+      'id' => ee['id'],
+      'name' => ee['attributes']['name']
+    }
   end
 end
 
 def request_results(test_run, ee)
-  uri = URI("#{PROJECT_URL}/test_runs/#{test_run['id']}/execution_environments/#{ee['id']}/builds/current?include=test-results")
-  result = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https') do |http|
-    request = Net::HTTP::Get.new uri
-    request['Accept'] = "application/vnd.api+json; version=1"
-    request['access-token'] = ACCESS_TOKEN
-    request['client'] = CLIENT_ID
-    request['uid'] = UID
-    http.request request
-  end
+  response = get_URL("test_runs/#{test_run['id']}/execution_environments/#{ee['id']}/builds/current?include=test-results")
 
-  if result and result.is_a?(Net::HTTPOK)
-    response = JSON.parse(result.body)
-
-    # To return an array containing only names and statusese of test runs
-    return response['included'].collect do |result|
-      result['attributes']['status']
-    end
+  return nil if response.nil?
+  # To return an array containing only names and statusese of test runs
+  return response['included'].collect do |result|
+    result['attributes']['status']
   end
 end
 
